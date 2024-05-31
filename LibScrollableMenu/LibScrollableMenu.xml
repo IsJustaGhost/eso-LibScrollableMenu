@@ -1,4 +1,11 @@
 <GuiXml>
+    <Font name="LSM_Font_30" font="$(MEDIUM_FONT)|$(KB_30)|soft-shadow-thin" />
+    <Font name="LSM_Font_24" font="$(MEDIUM_FONT)|$(KB_24)|soft-shadow-thin" />
+    <Font name="LSM_Font_20" font="$(MEDIUM_FONT)|$(KB_20)|soft-shadow-thin" />
+    <Font name="LSM_Font_18" font="$(MEDIUM_FONT)|$(KB_18)|soft-shadow-thin" />
+    <Font name="LSM_Font_16" font="$(MEDIUM_FONT)|$(KB_16)|soft-shadow-thin" />
+    <Font name="LSM_Font_13" font="$(MEDIUM_FONT)|$(KB_13)|soft-shadow-thin" />
+	
 	<Controls>
 		<!-- Munge template -->
 			<!--Controls>
@@ -7,7 +14,23 @@
 					<Anchor point="BOTTOMRIGHT" offsetY="-2" />
 				</Texture>
 			</Controls-->
-			
+						
+        <Backdrop name="LSM_SelectionHighlight" virtual="true" blendMode="ADD">
+            <AnchorFill/>
+            <Edge file="EsoUI/Art/Miscellaneous/Gamepad/edgeframeGamepadBorder_thick.dds" edgeFileWidth="64" edgeFileHeight="8" />
+            <Center file="EsoUI/Art/Miscellaneous/progressbar_genericFill_tall.dds" />
+            <Insets left="8" top="8" right="-8" bottom="-8" />
+        </Backdrop>
+		
+        <Texture name="LSM_TallListSelectedHighlight" textureFile="EsoUI/Art/Miscellaneous/listitem_backdrop_white.dds" alpha="0" level="1" virtual="true">
+            <AnchorFill />
+            <TextureCoords left="0" right="1" top="0" bottom=".625" />
+
+            <OnInitialized>
+                self.nonRecolorable = true
+            </OnInitialized>
+        </Texture>
+
 		<!-- Highlight for ZO_SortFilterList entries where a submenu got a callback function - Light green
 			Normal highlight is ZO_SelectionHighlight  -light blue -->
 		<Backdrop name="LibScrollableMenu_Highlight_Green" inherits="ZO_SelectionHighlight" virtual="true" blendMode="ADD" centerColor="00ff00" edgeColor="00ff00"/>
@@ -20,7 +43,7 @@
 				<Control name="$(parent)IconContainer">
 					<Dimensions x="25"  y="25"/>
 					<Anchor point="TOPLEFT" offsetX="0" offsetY="0"/>
-					<Anchor point="BOTTOMLEFT" offsetY="0" />
+					<!--Anchor point="BOTTOMLEFT" offsetY="0" /-->
 					<Controls>
 						<Texture name="$(parent)Icon" inherits="ZO_MultiIcon">
 							<!--Dimensions x="25"  y="25"/>
@@ -79,7 +102,7 @@
 
 		<!-- Header | no handlers-->
 		<Control name="LibScrollableMenu_ComboBoxHeaderEntry" inherits="LibScrollableMenu_ComboBoxEntry_Behavior" mouseEnabled="true" virtual="true">
-			<Dimensions y="25" />
+			<Dimensions y="30" />
 			<OnInitialized>
 				self.isHeader = true
 			</OnInitialized>
@@ -119,6 +142,7 @@
 
 			<OnInitialized>
 				self.Checkbox = self:GetNamedChild('Checkbox')
+				self.selectable = false <!-- Denotes this is a selectable entry.   -->
 			</OnInitialized>
 			
 			<Controls>
@@ -143,7 +167,6 @@
 		<!-- Submenu -->
 		<Control name="LibScrollableMenu_ComboBoxSubmenuEntry" inherits="LibScrollableMenu_ComboBoxEntry" mouseEnabled="true" virtual="true">
 			<OnInitialized>
-				<!-- Is this still needed? -->
 				self.selectable = true <!-- Denotes this is a selectable entry.   -->
 			</OnInitialized>
 			<Controls>
@@ -171,14 +194,15 @@
 			</OnEffectivelyShown>
 
 			<OnEffectivelyHidden name="HideDropdown" >
-				-- Handler set normally in ZO_ComboBox:Initialize
+				<!-- Handler set normally in ZO_ComboBox:Initialize -->
+				
 				if self.object then
 					self.object:HideDropdown()
 				end
 			</OnEffectivelyHidden>
 	
 			<OnMouseEnter name="CloseCheck">
-				-- Do we need to close any submenus on dropdown enter?
+				<!-- Do we need to close any submenus on dropdown enter? -->
 				if self.object then
 					self.object:OnMouseExitTimeout(self)
 				end
@@ -199,7 +223,7 @@
 		
 		<TopLevelControl name="LibScrollableMenu_Dropdown_Template" inherits="ZO_ComboBoxDropdown_Keyboard_Template LibScrollableMenu_Dropdown_Behavior" virtual="true">
 			<OnInitialized>
-				-- Overwritten to prevent original OnInitialized
+				<!-- Overwritten to prevent original OnInitialized -->
 			</OnInitialized>
 			<Controls>
 				<Control name="$(parent)Scroll" override="true">
@@ -316,7 +340,7 @@
 								
 								<Backdrop name="$(parent)Filter" hidden="false" tier="HIGH" inherits="ZO_SingleLineEditBackdrop_Keyboard">
 									<OnInitialized>
-										-- Add the filter contrls to the dropdown control.
+										<!-- Add the filter contrls to the dropdown control. -->
 										local owningWindow = self:GetOwningWindow()
 										owningWindow.filter = self
 										owningWindow.filterBox = self:GetNamedChild('Box')
@@ -336,7 +360,7 @@
 													owningWindow.object:SetFilterString(self)
 												end
 											</OnTextChanged>
-
+											
 											<OnMouseEnter>
 												ZO_Tooltips_ShowTextTooltip(self, BOTTOM, GetString(SI_LSM_SEARCH_FILTER_TOOLTIP))
 												InformationTooltipTopLevel:BringWindowToTop()
@@ -348,83 +372,63 @@
 										</EditBox>
 									</Controls>
 								</Backdrop>
-
-								<!--
-								<Button name="$(parent)Settings" inherits="ZO_ButtonBehaviorClickSound">
-									<Dimensions x="32" y="32" />
-									<Anchor point="RIGHT" relativeTo="$(parent)" relativePoint="RIGHT" offsetX="-ZO_SCROLLABLE_COMBO_BOX_LIST_PADDING_Y" offsetY="0" />
-
-									<Textures normal="esoui/art/chatwindow/chat_options_up.dds"
-									  pressed="esoui/art/chatwindow/chat_options_down.dds"
-									  mouseOver="esoui/art/chatwindow/chat_options_over.dds"/>
-
-									<OnMouseEnter>
-										ZO_Tooltips_ShowTextTooltip(self, BOTTOM, GetString(SI_GAME_MENU_SETTINGS))
-										InformationTooltipTopLevel:BringWindowToTop()
-									</OnMouseEnter>
-
-									<OnMouseExit>
-										ZO_Tooltips_HideTextTooltip()
-									</OnMouseExit>
-
-									<OnClicked>
-										ZO_Tooltips_HideTextTooltip()
-										local owningWindow = self:GetOwningWindow()
-										if owningWindow.object then
-											owningWindow.object:ShowFilterSettings(owningWindow, self)
-										end
-									</OnClicked>
-								</Button>
-								-->
-
-								<!--Button name="$(parent)Include" inherits="ZO_DefaultTextButton" text="S">
+								
+								<![CDATA[ Commented out. has -- within that would break a normal comment block
+								<Button name="$(parent)Include" inherits="ZO_DefaultTextButton" text="S">
 									<Dimensions x="32" y="32" />
 									<Anchor point="LEFT" relativeTo="$(parent)Filter" relativePoint="RIGHT" offsetX="-8" offsetY="0" />
-
+									
 									<OnInitialized>
 										self.uncheckedText = 'S'
 										self.checkedText = 'l'
-
+										
 										self.toggleFunction = function(button, checked)
 											local owningWindow = self:GetOwningWindow()
 											if owningWindow.object then
-												owningWindow.object:SetFilterIgnore(checked)
+												local fromHandler = true
+												owningWindow.object:SetFilterIgnore(checked, fromHandler)
 											end
 										end
-
+										
 									</OnInitialized>
-
+									
 									<OnClicked>
 										ZO_CheckButton_OnClicked(self, button)
-
-										- Show updated tooltip on click
+										
+										-- Show updated tooltip on click
 										ClearTooltip(InformationTooltip)
 										InitializeTooltip(InformationTooltip, self, BOTTOM, 0, 0)
 										SetTooltipText(InformationTooltip, GetString('LIBSCROLLABLEMENU_SI_MATCHTOOLTIP', self:GetState()))
 										InformationTooltipTopLevel:BringWindowToTop()
-
-										- Can't remember what one is 0 and 1
-										- LIBSCROLLABLEMENU_SI_MATCHTOOLTIP0 = 'Strict'
-										- LIBSCROLLABLEMENU_SI_MATCHTOOLTIP1 = 'Loose'
+										
+										-- SI_LSM_SEARCH_FILTER_MATCH_TOOLTIP0 = 'Strict'
+										-- SI_LSM_SEARCH_FILTER_MATCH_TOOLTIP1 = 'Loose'
+										-- BSTATE_NORMAL = 0
+										-- BSTATE_PRESSED = 1
+										-- BSTATE_DISABLED = 2
+										-- BSTATE_DISABLED_PRESSED = 3
 									</OnClicked>
-
+									
 									<OnEffectivelyShown>
 										local bState = self:GetState()
 										local checked = bState == BSTATE_PRESSED
-										- get saved button state
+										
+										-- get saved button state?
+											
 										ZO_CheckButton_SetCheckState(self, checked)
 									</OnEffectivelyShown>
-
+									
 									<OnMouseEnter>
 										InitializeTooltip(InformationTooltip, self, BOTTOM, 0, 0)
-										SetTooltipText(InformationTooltip, GetString('LIBSCROLLABLEMENU_SI_MATCHTOOLTIP', self:GetState()))
+										SetTooltipText(InformationTooltip, GetString('SI_LSM_SEARCH_FILTER_MATCH_TOOLTIP', self:GetState()))
 										InformationTooltipTopLevel:BringWindowToTop()
 									</OnMouseEnter>
 
 									<OnMouseExit>
 										ClearTooltip(InformationTooltip)
 									</OnMouseExit>
-								</Button-->
+								</Button>
+								]]>
 							</Controls>
 						</Control>
 						
@@ -457,7 +461,7 @@
 			</OnMouseExit>
 		</Control>
 
-		<!-- Scrollbar padding -->
+		<!-- Scrollbar container padding -->
 		<!-- used when scrollbar is hidden -->
 		<Control name="LibScrollableMenu_ScrollContents_BarHidden" virtual="true">
 			<Anchor point="TOPLEFT" />
@@ -468,5 +472,17 @@
 			<Anchor point="TOPLEFT" />
 			<Anchor point="BOTTOMRIGHT" offsetX="-ZO_SCROLL_BAR_WIDTH" />
 		</Control>
+		
+		<TopLevelControl name="LibScrollableMenu_Settings_Preview" clampedToScreen="true" hidden="true">
+			<Anchor point="TOPRIGHT" relativeTo="GuiRoot" relativePoint="TOPRIGHT" offsetX="-100" offsetY="0" />
+			<Controls>
+				<Control name="$(parent)ComboBox" inherits="ZO_ComboBox" clampedToScreen="true">
+					<Anchor point="TOPLEFT" relativeTo="$(parent)" relativePoint="TOPLEFT" offsetX="0" offsetY="0" />
+					<OnEffectivelyHidden>
+						self:GetParent():SetHidden(true)
+					</OnEffectivelyHidden>
+				</Control>
+			</Controls>
+		</TopLevelControl>
 	</Controls>
 </GuiXml>
