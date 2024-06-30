@@ -648,78 +648,185 @@ end
 	options.titleFont
 	options.subtitleText
 	options.subtitleFont
+	options.titleTextAlignment -- for title and subtitle
+	options.customHeaderControl
 	
 	options.enableFilter
 	options.headerCollapsible
-	options.headerCollapsed
+	
+--	options.headerCollapsed 
 	
 	context menu, on second showing, Filter is shown.
 ]]
 
 -- The controls, here and in the XML, are subject to change
 -- May only need PARENT, TITLE, FILTER_CONTAINER for now
-lib.headerControls = {
-	PARENT				= -1, -- To not cycle through this when anchoring controls, skipped in ipairs
-	CENTER_BASELINE		= 0, -- To not cycle through this when anchoring controls skipped in ipairs
+lib.headerControls = { 
+	-- To not cycle through this when anchoring controls, skipped in ipairs
+	PARENT				= -1,
+	TITLE_BASELINE		= -2,
+	CENTER_BASELINE		= 0,
+	-- Cycles with ipairs
 	TITLE				= 1,
 	SUBTITLE			= 2,
-	TITLE_BASELINE		= 3,
-	DIVIDER_SIMPLE		= 4,
-	FILTER_CONTAINER	= 5,
-	CUSTOM_CONTROL		= 6,
+	DIVIDER_SIMPLE		= 3,
+	FILTER_CONTAINER	= 4,
+	CUSTOM_CONTROL		= 5,
+	TOGGLE_BUTTON		= 6,
 }
 local headerControls = lib.headerControls
 
 local refreshDropdownHeader
 do
+	-- Alias the control names to make the code less verbose and more readable.
 	local PARENT			= headerControls.PARENT
 	local TITLE				= headerControls.TITLE
 	local SUBTITLE			= headerControls.SUBTITLE
 	local CENTER_BASELINE	= headerControls.CENTER_BASELINE
-	--local TITLE_BASELINE	= headerControls.TITLE_BASELINE
+	local TITLE_BASELINE	= headerControls.TITLE_BASELINE
 	local DIVIDER_SIMPLE	= headerControls.DIVIDER_SIMPLE
 	local FILTER_CONTAINER	= headerControls.FILTER_CONTAINER
 	local CUSTOM_CONTROL	= headerControls.CUSTOM_CONTROL
+	local TOGGLE_BUTTON		= headerControls.TOGGLE_BUTTON
 
-	local g_refreshResults = {}
-	local g_currentBottomLeftHeader = PARENT
+	local DEFAULT_CONTROLID = CENTER_BASELINE
+	
+	local g_currentBottomLeftHeader = DEFAULT_CONTROLID
 
-	local function header_applyAnchorToControl(control, controlId)
-		if control:IsHidden() then control:SetHidden(false) end
-		local controls = control.controls
+	-- Because these consts are created before the xml is loaded, we don't have an effecient way to track the anticipated height of the info labels
+	-- We need to track the disparity to line up the bottoms, so we just grabbed these numbers ahead of time
+	-- TODO: Revisit this and come up with a better way to anchor dynamically
+	
+	local GENERIC_HEADER_INFO_LABEL_HEIGHT = 33
+	local GENERIC_HEADER_INFO_DATA_HEIGHT = 50
+	local GENERIC_HEADER_INFO_FONT_HEIGHT_DISPARITY = 4 -- This is used to align the baselines of the headers and their texts; will need to update if fonts change
+	local ROW_OFFSET_Y = GENERIC_HEADER_INFO_LABEL_HEIGHT + 10
+	
+	local ROW_OFFSET_Y = 5
+	local ROW_BOTTOM_Y = ROW_OFFSET_Y * 6 -- 30 per row
+	
+	local DATA_OFFSET_X = 5
+	local HEADER_OFFSET_X = 29
 
-		local headerControl = controls[controlId]
-		headerControl:SetAnchor(TOPLEFT, controls[g_currentBottomLeftHeader], BOTTOMLEFT, 0, 5)
-		headerControl:SetAnchor(BOTTOMRIGHT, controls[g_currentBottomLeftHeader], BOTTOMRIGHT, 0, headerControl:GetHeight() + 5)
+	-- The Anchor class simply wraps a ZO_Anchor object with a target id, which we can later resolve into an actual control.
+	-- This allows us to specify all anchor data at file scope and resolve the target controls only when needed.
+	local Anchor = ZO_Object:Subclass()
 
-		g_currentBottomLeftHeader = controlId
+	function Anchor:New(pointOnMe, targetId, pointOnTarget, offsetX, offsetY)
+		local object = ZO_Object.New(self)
+		object.targetId = targetId
+		object.anchor = ZO_Anchor:New(pointOnMe, nil, pointOnTarget, offsetX, offsetY)
+		return object
 	end
 
-	local function header_updateAnchors(control, refreshResults, visible)
-		--local owningWindow = control:GetOwningWindow()
-		--local hasFocus = owningWindow.filterBox:HasFocus()
-		local anyControlNotHidden = false
-		local headerHeight = visible and 0 or 13-- +5 (see below at control:SetHeight) = 18 pixels height
-		local controls = control.controls
-		g_currentBottomLeftHeader = CENTER_BASELINE
+	local DEFAULT_ANCHOR = 100
+								-- {point, relativeTo_controlId, relativePoint, offsetX, offsetY}
+	local anchors = {
+  --      [TOGGLE_BUTTON]		= { Anchor:New(TOPRIGHT, PARENT, TOPRIGHT, -ROW_OFFSET_Y, ROW_OFFSET_Y)},
+        [TOGGLE_BUTTON]		= { Anchor:New(BOTTOMRIGHT, PARENT, BOTTOMRIGHT, -ROW_OFFSET_Y,  0)},
+		
+        [TITLE]				= { Anchor:New(TOPLEFT, nil, BOTTOMLEFT, 0, ROW_OFFSET_Y),
+								Anchor:New(BOTTOMRIGHT, nil, BOTTOMRIGHT, -ROW_OFFSET_Y, ROW_BOTTOM_Y) },
+								
+        [SUBTITLE]			= { Anchor:New(TOPLEFT, nil, BOTTOMLEFT, 0, ROW_OFFSET_Y),
+								Anchor:New(BOTTOMRIGHT, nil, BOTTOMRIGHT, -ROW_OFFSET_Y, ROW_BOTTOM_Y) },
+								
+        [DIVIDER_SIMPLE]	= { Anchor:New(TOPLEFT, nil, BOTTOMLEFT, 0, ZO_GAMEPAD_CONTENT_TITLE_DIVIDER_PADDING_Y),
+								Anchor:New(TOPRIGHT, nil, BOTTOMRIGHT, 0, ZO_GAMEPAD_CONTENT_TITLE_DIVIDER_PADDING_Y) },
+								
+        [FILTER_CONTAINER]	= { Anchor:New(TOPLEFT, nil, BOTTOMLEFT, 0, ROW_OFFSET_Y),
+								Anchor:New(BOTTOMRIGHT, nil, BOTTOMRIGHT, 0, ROW_BOTTOM_Y) },
+								
+        [DEFAULT_ANCHOR]	= { Anchor:New(TOPLEFT, nil, BOTTOMLEFT, 0, ROW_OFFSET_Y),
+								Anchor:New(BOTTOMRIGHT, nil, BOTTOMRIGHT, 0, ROW_BOTTOM_Y) },
+								
+        [CUSTOM_CONTROL]	= { Anchor:New(TOP, nil, BOTTOM, 0, ROW_OFFSET_Y) },
+								
+	}
+	
+	local function header_applyAnchorToControl(headerControl, anchor, controlId, control)
+		if headerControl:IsHidden() then headerControl:SetHidden(false) end
+		local controls = headerControl.controls
+		
+		local targetId = anchor.targetId or g_currentBottomLeftHeader
+		local target = controls[targetId]
+		
+		anchor.anchor:SetTarget(target)
+		anchor.anchor:AddToControl(control)
+	end
 
-		for controlId, headerControl in ipairs(controls) do
-			headerControl:ClearAnchors()
-			local notHidden = refreshResults[controlId] and visible
-			headerControl:SetHidden(not notHidden)
-			if notHidden then
---d(">not hidden header ctrl: " .. getControlName(headerControl))
-				header_applyAnchorToControl(control, controlId)
-				headerHeight = headerHeight + headerControl:GetHeight() + 5
-				anyControlNotHidden = true
-			end
-			--anyControlNotHidden = notHidden or refreshResults[controlId] ~= nil
+	local function header_applyAnchorSetToControl(headerControl, anchorSet, controlId, collapsed)
+		local controls = headerControl.controls
+		local control = controls[controlId]
+		control:SetHidden(false)
+		
+		header_applyAnchorToControl(headerControl, anchorSet[1], controlId, control)
+		if anchorSet[2] then
+			header_applyAnchorToControl(headerControl, anchorSet[2], controlId, control)
 		end
---d(">header height: " ..tos(headerHeight))
-		control:SetHeight(headerHeight + 5)
-		return anyControlNotHidden
+		
+		g_currentBottomLeftHeader = controlId
+		
+		
+		local height = control:GetHeight()
+		if controlId == TOGGLE_BUTTON then
+			-- We want to keep height if collapsed but not add height for the button if not.
+			height = collapsed and height or 0
+		else
+		--	height = height + (ROW_OFFSET_Y * 2)
+			height = height + ROW_OFFSET_Y
+		end
+		
+		d( height)
+		return height
 	end
+	
+	--[[
+				if collapsed then
+				else
+				end
 
+	]]
+	
+	local function showHeaderDivider(controlId)
+		if g_currentBottomLeftHeader ~= DEFAULT_CONTROLID and controlId < TOGGLE_BUTTON then
+			return g_currentBottomLeftHeader < DIVIDER_SIMPLE and controlId > DIVIDER_SIMPLE
+		end
+		return false
+	end
+	
+	local function header_updateAnchors(headerControl, refreshResults, collapsed)
+		local headerHeight = collapsed and 0 or 17
+		local headerHeight = 0
+		local controls = headerControl.controls
+		g_currentBottomLeftHeader = DEFAULT_CONTROLID
+
+		for controlId, control in ipairs(controls) do
+			control:ClearAnchors()
+			control:SetHidden(true)
+			
+			local hidden = not refreshResults[controlId]
+			-- There are no other header controls showing, so hide the togle button
+			if not collapsed and controlId == TOGGLE_BUTTON and g_currentBottomLeftHeader == DEFAULT_CONTROLID then
+				hidden = true
+			end
+			
+			if not hidden then
+				if showHeaderDivider(controlId) then
+					-- Only show the divider if g_currentBottomLeftHeader is before DIVIDER_SIMPLE and controlId is after DIVIDER_SIMPLE
+					headerHeight = headerHeight + header_applyAnchorSetToControl(headerControl, anchors[DIVIDER_SIMPLE], DIVIDER_SIMPLE)
+				end
+				
+				local anchorSet = anchors[controlId] or anchors[DEFAULT_ANCHOR]
+				headerHeight = headerHeight + header_applyAnchorSetToControl(headerControl, anchorSet, controlId, collapsed)
+			end
+		end
+		
+		if headerHeight > 0 then
+			headerControl:SetHeight(headerHeight + (ROW_OFFSET_Y * 3))
+		end
+	end
+	
 	local function header_setAlignment(control, alignment, defaultAlignment)
 		if control == nil then
 			return
@@ -744,8 +851,9 @@ do
 		control:SetFont(font)
 	end
 
-	local function header_processData(control, data)
-		if control == nil then
+	local function header_processData(control, data, collapsed)
+		-- if collapsed is true then this is hidden
+		if control == nil or collapsed then
 			return false
 		end
 
@@ -766,8 +874,9 @@ do
 		return data ~= nil
 	end
 
-	local function header_processControl(control, customControl)
-		if control == nil then
+	local function header_processControl(control, customControl, collapsed)
+		-- if collapsed is true then this is hidden
+		if control == nil or collapsed then
 			return false
 		end
 
@@ -776,7 +885,7 @@ do
 		if dataType == "userdata" then
 			customControl:SetParent(control)
 			customControl:ClearAnchors()
-			customControl:SetAnchor(TOP, control, TOP, 0, 2)
+			customControl:SetAnchor(TOP, control, TOP, 0, 0)
 			control:SetDimensions(customControl:GetDimensions())
 			return true
 		end
@@ -784,61 +893,35 @@ do
 		return false
 	end
 
-	refreshDropdownHeader = function(comboBox, control, options, visible)
+	refreshDropdownHeader = function(comboBox, headerControl, options, collapsed)
+		local controls = headerControl.controls
 
-		local controls = control.controls
-		local headerCollapsible = options.headerCollapsible or false
-		if not headerCollapsible then visible = true end
---d("[LSM]refreshDropdownHeader - visible: " ..tos(visible) .. ", headerCollapsible: " ..tos(headerCollapsible) .. "; isFilterEnabled: " .. tos(comboBox:IsFilterEnabled()))
-		comboBox.m_dropdown.headerCollapseButton:SetHidden(not headerCollapsible)
+		headerControl:SetHidden(true)
+		headerControl:SetHeight(0)
 
-		control:SetHidden(true)
-		control:SetHeight(0)
-
-		g_refreshResults = {}
-
-		g_refreshResults[TITLE] = header_processData(controls[TITLE], getValueOrCallback(options.titleText, options))
+		local refreshResults = {}
+		-- Title / Subtitle 
+		refreshResults[TITLE] = header_processData(controls[TITLE], getValueOrCallback(options.titleText, options), collapsed)
 		header_setFont(controls[TITLE], getValueOrCallback(options.titleFont, options), HeaderFontTitle)
 
-		g_refreshResults[SUBTITLE] = header_processData(controls[SUBTITLE], getValueOrCallback(options.subtitleText, options))
+		refreshResults[SUBTITLE] = header_processData(controls[SUBTITLE], getValueOrCallback(options.subtitleText, options), collapsed)
 		header_setFont(controls[SUBTITLE], getValueOrCallback(options.subtitleFont, options), HeaderFontSubtitle)
 
 		header_setAlignment(controls[TITLE], getValueOrCallback(options.titleTextAlignment, options), TEXT_ALIGN_CENTER)
-		local showTitle = g_refreshResults[TITLE] or g_refreshResults[SUBTITLE] or false
+		header_setAlignment(controls[SUBTITLE], getValueOrCallback(options.titleTextAlignment, options), TEXT_ALIGN_CENTER)
 
-		local showDivider = false
-		g_refreshResults[FILTER_CONTAINER] = header_processData(controls[FILTER_CONTAINER], comboBox:IsFilterEnabled())
-		showDivider = showDivider or g_refreshResults[FILTER_CONTAINER]
-
-		g_refreshResults[CUSTOM_CONTROL] = header_processControl(controls[CUSTOM_CONTROL], getValueOrCallback(options.customHeaderControl, options))
-		showDivider = showDivider or g_refreshResults[CUSTOM_CONTROL]
-
-		g_refreshResults[DIVIDER_SIMPLE] = (showDivider and showTitle)
-
-		--Dynamically anchor the header controls now and change the header height, based on visible state (collapsed/expanded)
-		local anyControlNotHidden = header_updateAnchors(control, g_refreshResults, visible)
-		--Unhide the header so the collapse/expand buttons are shown, or if any header title, subtitle, search editbox are shown
-		if anyControlNotHidden or headerCollapsible then
---d(">anyControlNotHidden: " .. tos(anyControlNotHidden))
-			control:SetHidden(false)
-		end
-
+		-- Others
+		refreshResults[FILTER_CONTAINER] = header_processData(controls[FILTER_CONTAINER], comboBox:IsFilterEnabled(), collapsed)
+		refreshResults[CUSTOM_CONTROL] = header_processControl(controls[CUSTOM_CONTROL], getValueOrCallback(options.customHeaderControl, options), collapsed)
+		refreshResults[TOGGLE_BUTTON] = header_processData(controls[TOGGLE_BUTTON], getValueOrCallback(options.headerCollapsible, options))
+		
+		header_updateAnchors(headerControl, refreshResults, collapsed)
 	end
 end
-
 
 --------------------------------------------------------------------
 -- Local functions
 --------------------------------------------------------------------
-function getControlName(control, alternativeControl)
-	local ctrlName = control ~= nil and (control.name or (control.GetName ~= nil and control:GetName()))
-	if ctrlName == nil and alternativeControl ~= nil then
-		ctrlName = (alternativeControl.name or (alternativeControl.GetName ~= nil and alternativeControl:GetName()))
-	end
-	ctrlName = ctrlName or "n/a"
-	return ctrlName
-end
-lib.GetControlName = getControlName
 
 local function throttledCall(callback, delay, throttledCallNameSuffix)
 	delay = delay or throttledCallDelay
@@ -872,6 +955,16 @@ local function getHeaderControl(selfVar)
 	return dropdownControl.header, dropdownControl
 end
 
+getControlName = function(control, alternativeControl)
+	local ctrlName = control ~= nil and (control.name or (control.GetName ~= nil and control:GetName()))
+	if ctrlName == nil and alternativeControl ~= nil then
+		ctrlName = (alternativeControl.name or (alternativeControl.GetName ~= nil and alternativeControl:GetName()))
+	end
+	ctrlName = ctrlName or "n/a"
+	return ctrlName
+end
+lib.GetControlName = getControlName
+
 --Control types which should save the parentName to the SV (for the header's toggleState) instead of each children
 --e.g. ZO_ScrollLists
 local headerToggleControlTypesSaveTheParent = {
@@ -882,7 +975,7 @@ local function getHeaderToggleStateControlSavedVariableName(selfVar)
 	if openingControlOrComboBoxName then
 		local openingControlOrComboBoxCtrl = _G[openingControlOrComboBoxName]
 		local parentCtrl = openingControlOrComboBoxCtrl:GetParent()
-		--Parent control is a scrollList -> Then save the parent as SV entry name, and not each single row of the scrollList
+		--Parent control is a scrollList -> then save the parent as SV entry name, and not each single row of the scrollList
 		if parentCtrl and parentCtrl.GetType and headerToggleControlTypesSaveTheParent[parentCtrl:GetType()] then
 --d(">parentName: " ..tos(getControlName(parentCtrl)))
 			return getControlName(parentCtrl)
@@ -910,67 +1003,6 @@ local function updateCollapseHeaderButton(selfVar, toggleButtonCtrl, headerColla
 		toggleButtonCtrl:SetText("^")
 	end
 	return newState
-end
-
-local function setDropdownHeaderToggleState(selfVar, toggleButtonCtrl)
-	--d("[LSM]setDropdownHeaderToggleState - toggleButtonCtrl: " ..tos(toggleButtonCtrl))
-	local headerControl, dropdownControl = getHeaderControl(selfVar)
-	if headerControl == nil or dropdownControl == nil then return end
-
-	local noVarUpdate = false
-	local currentHeaderCollapsedState
-
-	--Get the current options
-	local options = selfVar:GetOptions()
-	local headerCollapsible = options.headerCollapsible or false
-
-	if headerCollapsible then
-		--Take the collapsed state always fixed from options - But only if not manually toggled the collapsed state
-		if toggleButtonCtrl == nil and options.headerCollapsed ~= nil then
-			currentHeaderCollapsedState = options.headerCollapsed
-			--d(">currentHeaderCollapsedState changed to options.headerCollapsed")
-			noVarUpdate = true
-			--explicitly update the SavedVars with the current state so next click on the button works correctly
-			updateSavedVariable("collapsedHeaderState", currentHeaderCollapsedState, getHeaderToggleStateControlSavedVariableName(selfVar))
-		else
-			--Get the current header's collapsed state from SavedVariables
-			currentHeaderCollapsedState = getSavedVariable("collapsedHeaderState", getHeaderToggleStateControlSavedVariableName(selfVar))
-		end
-		if currentHeaderCollapsedState == nil then currentHeaderCollapsedState = false end
-	else
-		currentHeaderCollapsedState = false
-	end
-	selfVar.headerCollapsed = currentHeaderCollapsedState
-
-	--Header is collapsible?
-	--d(">headerCollapsible: " .. tos(headerCollapsible) ..", currentHeaderCollapsedState: " ..tos(currentHeaderCollapsedState))
-	if headerCollapsible then
-		--Toggle button was clicked to change the collapsed state
-		if toggleButtonCtrl ~= nil then
-			--ToggleDropdownHeader ->
-			--Change the current collapsed state to the other one and update the button's text + SavedVariables
-			selfVar.headerCollapsed = updateCollapseHeaderButton(selfVar, toggleButtonCtrl, currentHeaderCollapsedState, dropdownControl, noVarUpdate)
-		else
-			--No toggle button was clicked. Just drawing the header
-			--UpdateDropdownHeader ->
-			--Only update the button's text
-			updateCollapseHeaderButton(selfVar, selfVar.m_dropdown.headerCollapseButton, currentHeaderCollapsedState, dropdownControl, true)
-		end
-	end
-	--d(">newHeaderCollapsedState: " ..tos(selfVar.headerCollapsed))
-
-	--Redraw all dynamic header controls (title, subtitle, filter editbox, ...) -> function signature = comboBox, control, options, visible
-	--> visible controls if the header is shown in total (collapsed or not collapsed), or not
-	refreshDropdownHeader(selfVar, headerControl, options, not selfVar.headerCollapsed)
-	--Update self.m_height properly for self:Show call (including the now updated header's height)
-	selfVar:UpdateHeight(dropdownControl)
-
-	--Toggle button was clicked -> Header's collapsed state changed
-	if toggleButtonCtrl ~= nil then
-		--d(">>:Show is called")
-		--Redraw the dropdown so that the header height etc. is visibly updated
-		selfVar.m_dropdownObject:Show(selfVar, selfVar.m_sortedItems, selfVar.m_containerWidth, selfVar.m_height, selfVar:GetSpacing())
-	end
 end
 
 --Check for isDivider, isHeader, isCheckbox ... in table (e.g. item.additionalData) and get the LSM entry type for it
@@ -2751,7 +2783,7 @@ function dropdownClass:WasTextSearchContextMenuEntryClicked(mocCtrl)
 --d(">wasTextSearchContextMenuEntryClicked was TRUE")
 		return true
 	end
-	--Clicked control is known and the owner is ZO_Menus -> Then assume we did open the ZO_Menu above an LSM and need the LSM to stay open
+	--Clicked control is known and the owner is ZO_Menus -> then assume we did open the ZO_Menu above an LSM and need the LSM to stay open
 	if mocCtrl ~= nil and mocCtrl:GetOwningWindow() == ZO_Menus then
 --d(">ZO_Menus entry clicked!")
 		return true
@@ -3349,6 +3381,10 @@ function comboBox_base:UpdateHeight(control)
 
 	--This will set self.m_height for later usage in self:Show() -> as the dropdown is shown
 	self:SetHeight(maxHeightInTotal)
+	
+	if self:IsDropdownVisible() then
+		self.m_dropdownObject:Show(self, self.m_sortedItems, self.m_containerWidth, self.m_height, self:GetSpacing())
+	end
 end
 
 do -- Row setup functions
@@ -3438,7 +3474,7 @@ do -- Row setup functions
 		if not useDefaultHighlightForSubmenuWithCallback then
 			if control.closeOnSelect and not data.m_highlightTemplate then
 				data.m_highlightTemplate = 'LibScrollableMenu_Highlight_Green'
-				--elseif not data.m_highlightTemplate then
+			--elseif not data.m_highlightTemplate then
 				--	data.m_highlightTemplate = 'LibScrollableMenu_Highlight_WithOutCallback'
 			end
 		end
@@ -3610,7 +3646,7 @@ function comboBoxClass:Initialize(parent, comboBoxContainer, options, depth, ini
 
 	--Custom added controls
 	-->Header - Collapse&Expand toggle button
-	self.m_dropdown.headerCollapseButton:SetHidden(true)
+--	self.m_dropdown.headerCollapseButton:SetHidden(true)
 
 	return self
 end
@@ -3764,16 +3800,32 @@ function comboBoxClass:ShowDropdown()
 	self:ShowDropdownInternal()
 end
 
-function comboBoxClass:ToggleDropdownHeader(toggleButtonCtrl)
-	dLog(LSM_LOGTYPE_VERBOSE, "comboBoxClass:ToggleDropdownHeader - toggleButton: %s", tos(toggleButtonCtrl))
-	self:UpdateDropdownHeader(toggleButtonCtrl)
-end
-
-
 function comboBoxClass:UpdateDropdownHeader(toggleButtonCtrl)
 	dLog(LSM_LOGTYPE_VERBOSE, "comboBoxClass:UpdateDropdownHeader - options: %s, toggleButton: %s", tos(self.options), tos(toggleButtonCtrl))
-	local dropdownControl, headerControl = setDropdownHeaderToggleState(self, toggleButtonCtrl)
+	local headerControl, dropdownControl = getHeaderControl(self)
+	if headerControl == nil then return end
+	
+	toggleButtonCtrl = toggleButtonCtrl or dropdownControl.toggleButton
+--	ZO_CheckButton_SetCheckState(toggleButtonCtrl, options.headerCollapsed or false)
+	
+	local headerCollapsed = false
+	if toggleButtonCtrl then
+		local currentState = toggleButtonCtrl:GetState()
+		d( currentState)
+		if currentState == BSTATE_PRESSED then
+			headerCollapsed = true
+		elseif currentState == BSTATE_NORMAL then
+			headerCollapsed = false
+		end
+	end
+--	options.headerCollapsed = headerCollapsed
+	
+	d("[LSM]comboBoxClass:UpdateDropdownHeader - headerCollapsed: " ..tos(headerCollapsed))
+	refreshDropdownHeader(self, headerControl, self.options, headerCollapsed)
+
+	self:UpdateHeight(dropdownControl) --> Update self.m_height properly for self:Show call (including the now updated header's height)
 end
+
 
 function comboBoxClass:UpdateOptions(options, onInit)
 	onInit = onInit or false
@@ -4750,6 +4802,8 @@ TODO - To check (future versions)
 	4. verify submenu anchors. Small adjustments not easily seen on small laptop monitor
 	- fired on handlers dropdown_OnShow dropdown_OnHide
 	5. Check if entries' .tooltip can be a function and then call that function and show it as normal ZO_Tooltips_ShowTextTooltip(control, text) instead of having to use .customTooltip for that
+
+	6. setup m_highlightTemplate as a table in GetHighlightTemplate to return template and animationFieldName
 
 -------------------
 UPCOMING FEATURES  - What will be added in the future?
