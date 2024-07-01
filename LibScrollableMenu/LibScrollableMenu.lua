@@ -573,18 +573,20 @@ end
 --------------------------------------------------------------------
 -- Breadcrumb animation highlight
 --------------------------------------------------------------------
+
 local function playAnimationOnControl(control, animationFieldName, controlTemplate, overrideEndAlpha)
 	if controlTemplate then
 		if not control[animationFieldName] then
-			local highlightControl = CreateControlFromVirtual("$(parent)", control, controlTemplate, animationFieldName)
+			local highlightControl = CreateControlFromVirtual("$(parent)Scroll", control, controlTemplate, animationFieldName)
 			local width = highlightControl:GetWidth()
 			highlightControl:SetFadeGradient(1, (width / 3) , 0, width)
 			--SetFadeGradient(gradientIndex, normalX, normalY, gradientLength)
 			
 			control[animationFieldName] = ANIMATION_MANAGER:CreateTimelineFromVirtual("ShowOnMouseOverLabelAnimation", highlightControl)
 			
-			control.highlightControl = highlightControl
+	--		control.highlightControl = highlightControl
 		end
+		
 		if overrideEndAlpha then
 			control[animationFieldName]:GetAnimation(1):SetAlphaValues(0, overrideEndAlpha)
 		end
@@ -593,26 +595,35 @@ local function playAnimationOnControl(control, animationFieldName, controlTempla
 	end
 end
 
-
 local function removeAnimationOnControl(control, animationFieldName)
 	if control[animationFieldName] then
 		control[animationFieldName]:PlayBackward()
 	end
-end
-
-local function highlightControl(self, control)
-	local highlightTemplate = self:GetHighlightTemplate(control)
-	dLog(LSM_LOGTYPE_VERBOSE, "highlightControl - highlightTemplate: " ..tos(highlightTemplate))
-	playAnimationOnControl(control, self.breadcrumbName, highlightTemplate, 0.5)
-
-	self.highlightedControl = control
+	control.breadcrumbName = nil
 end
 
 local function unhighlightControl(self)
-	removeAnimationOnControl(self.highlightedControl, self.breadcrumbName)
-	self.highlightedControl = nil
+	if self.highlightedControl then
+		local control = self.highlightedControl
+		removeAnimationOnControl(control, control.breadcrumbName)
+		self.highlightedControl = nil
+	end
 end
 
+local function highlightControl(self, control)
+	if self.highlightedControl then
+		unhighlightControl(self)
+	end
+	
+	local highlightTemplate, animationFieldName = self:GetHighlightTemplate(control)
+	dLog(LSM_LOGTYPE_VERBOSE, "highlightControl - highlightTemplate: " ..tos(highlightTemplate))
+	
+	control.breadcrumbName = string.format('%s_%s', animationFieldName, self.breadcrumbName)
+	
+	playAnimationOnControl(control, control.breadcrumbName, highlightTemplate, 0.5)
+
+	self.highlightedControl = control
+end
 
 --------------------------------------------------------------------
 -- XML template functions
@@ -1880,7 +1891,6 @@ local function showTooltip(self, control, data, hasSubmenu)
 	end
 end
 
-
 --------------------------------------------------------------------
 -- Local narration functions
 --------------------------------------------------------------------
@@ -2688,7 +2698,7 @@ end
 
 function dropdownClass:OnShow(formattedEventName)
 	dLog(LSM_LOGTYPE_VERBOSE, "dropdownClass:OnShow")
-	self.control:BringWindowToTop()
+--	self.control:BringWindowToTop()
 
 	if formattedEventName ~= nil then
 		throttledCall(function()
@@ -2702,7 +2712,6 @@ end
 
 function dropdownClass:OnHide(formattedEventName)
 	dLog(LSM_LOGTYPE_VERBOSE, "dropdownClass:OnHide")
---	self.control:BringWindowToTop()
 	if formattedEventName ~= nil then
 		local ctrl = self.control
 		self:Narrate(formattedEventName, ctrl)
@@ -3161,13 +3170,29 @@ function comboBox_base:GetDropdownObject(comboBoxContainer, depth)
 	return dropdownClass:New(self, comboBoxContainer, depth)
 end
 
+--[[
 function comboBox_base:GetHighlightTemplate(control)
 	local controlData = getControlData(control)
 	return (controlData ~= nil and controlData.m_highlightTemplate) or
 			(control.m_data ~= nil and control.m_data.m_highlightTemplate)
 			or self.m_highlightTemplate
 end
+]]
 
+function comboBox_base:GetHighlightTemplate(control)
+	local animationFieldName = 'HighlightAnimation'
+	local highlightTemplate = (control.m_data ~= nil and control.m_data.m_highlightTemplate) or self.m_highlightTemplate
+	return highlightTemplate, highlightTemplate
+end
+
+function comboBox_base:UpdateHighlightTemplate(control, highlightTemplate)
+	if not highlightTemplate then
+		control.m_data.m_highlightTemplate = nil
+	elseif not control.m_data.m_highlightTemplate then
+		control.m_data.m_highlightTemplate = highlightTemplate
+	end
+end
+	
 -- Create the m_dropdownObject on initialize.
 function comboBox_base:GetOptions()
 	dLog(LSM_LOGTYPE_VERBOSE, "comboBox_base:GetOptions")
@@ -3245,6 +3270,11 @@ if comboBox_base.IsEnabled == nil then
 	function comboBox_base:IsEnabled()
 		return self.m_openDropdown:GetState() ~= BSTATE_DISABLED
 	end
+end
+
+function comboBox_base:Show()
+	self.m_dropdownObject:Show(self, self.m_sortedItems, self.m_containerWidth, self.m_height, self:GetSpacing())
+	self.m_dropdownObject.control:BringWindowToTop()
 end
 
 -- used for onMouseEnter[submenu] and onMouseUp[contextMenu]
@@ -3383,7 +3413,8 @@ function comboBox_base:UpdateHeight(control)
 	self:SetHeight(maxHeightInTotal)
 	
 	if self:IsDropdownVisible() then
-		self.m_dropdownObject:Show(self, self.m_sortedItems, self.m_containerWidth, self.m_height, self:GetSpacing())
+	--	self.m_dropdownObject:Show(self, self.m_sortedItems, self.m_containerWidth, self.m_height, self:GetSpacing())
+		self:Show()
 	end
 end
 
@@ -3460,6 +3491,7 @@ do -- Row setup functions
 		self:SetupEntryLabelBase(control, data, list)
 	end
 
+--[[ scrap for reverting
 	function comboBox_base:SetupEntrySubmenu(control, data, list)
 		dLog(LSM_LOGTYPE_VERBOSE, "comboBox_base:SetupEntrySubmenu - control: %s, list: %s,", tos(getControlName(control)), tos(list))
 		self:SetupEntryLabel(control, data, list)
@@ -3479,7 +3511,40 @@ do -- Row setup functions
 			end
 		end
 	end
+]]
 
+
+--[[
+	control[animationFieldName]
+	
+	"HighlightAnimation"
+	self.breadcrumbName
+]]
+
+	function comboBox_base:SetupEntrySubmenu(control, data, list)
+		dLog(LSM_LOGTYPE_VERBOSE, "comboBox_base:SetupEntrySubmenu - control: %s, list: %s,", tos(getControlName(control)), tos(list))
+		self:SetupEntryLabel(control, data, list)
+		addArrow(control, data, list)
+		control.typeId = LSM_ENTRY_TYPE_SUBMENU
+
+--d("[LSM]submenu setup: - name: " .. tos(getValueOrCallback(data.label or data.name, data)) ..", closeOnSelect: " ..tos(control.closeOnSelect) .. "; m_highlightTemplate: " ..tos(data.m_highlightTemplate) )
+
+		--Color the highlight light green if the submenu has a callback (entry opening a submenu can be clicked to select it)
+		local options = self:GetOptions()
+		local useDefaultHighlightForSubmenuWithCallback = (options ~= nil and options.useDefaultHighlightForSubmenuWithCallback) or false
+		
+		local highlightTemplate
+		
+		if not useDefaultHighlightForSubmenuWithCallback then
+		--	if control.closeOnSelect and not data.m_highlightTemplate then
+			if control.closeOnSelect then
+				highlightTemplate = 'LibScrollableMenu_Highlight_Green'
+			end
+		end
+		
+		self:UpdateHighlightTemplate(control, highlightTemplate)
+	end
+	
 	function comboBox_base:SetupEntryHeader(control, data, list)
 		dLog(LSM_LOGTYPE_VERBOSE, "comboBox_base:SetupEntryHeader - control: %s, list: %s,", tos(getControlName(control)), tos(list))
 		addDivider(control, data, list)
@@ -3660,8 +3725,7 @@ function comboBoxClass:AddMenuItems()
 	dLog(LSM_LOGTYPE_VERBOSE, "comboBoxClass:AddMenuItems")
 	self:UpdateItems()
 	self.m_dropdownObject:AnchorToComboBox(self)
-
-	self.m_dropdownObject:Show(self, self.m_sortedItems, self.m_containerWidth, self.m_height, self:GetSpacing())
+	self:Show()
 end
 
 function comboBoxClass:BypassOnGlobalMouseUp(button, ...)
@@ -3699,6 +3763,10 @@ function comboBoxClass:HideDropdown()
 	dLog(LSM_LOGTYPE_VERBOSE, "comboBoxClass:HideDropdown")
 	-- Recursive through all open submenus and close them starting from last.
 
+	if self.highlightedControl then
+		unhighlightControl(self)
+	end
+	
 	if g_contextMenu:IsDropdownVisible() then
 		g_contextMenu:HideDropdown()
 	end
@@ -3780,6 +3848,14 @@ end
 function comboBoxClass:SetupDropdownHeader()
 	local dropdownControl = self.m_dropdownObject.control
 	ApplyTemplateToControl(dropdownControl, 'LibScrollableMenu_Dropdown_Template_WithHeader')
+	
+	local options = self:GetOptions()
+	local headerCollapsed = sv and sv.headerCollapsed or options and options.headerCollapsed
+	if headerCollapsed ~= nil then
+		if dropdownControl.toggleButton then
+			ZO_CheckButton_SetCheckState(dropdownControl.toggleButton, headerCollapsed)
+		end
+	end
 end
 
 function comboBoxClass:SetFilterString(filterBox, newText)
@@ -3806,12 +3882,10 @@ function comboBoxClass:UpdateDropdownHeader(toggleButtonCtrl)
 	if headerControl == nil then return end
 	
 	toggleButtonCtrl = toggleButtonCtrl or dropdownControl.toggleButton
---	ZO_CheckButton_SetCheckState(toggleButtonCtrl, options.headerCollapsed or false)
 	
 	local headerCollapsed = false
 	if toggleButtonCtrl then
 		local currentState = toggleButtonCtrl:GetState()
-		d( currentState)
 		if currentState == BSTATE_PRESSED then
 			headerCollapsed = true
 		elseif currentState == BSTATE_NORMAL then
@@ -3825,7 +3899,6 @@ function comboBoxClass:UpdateDropdownHeader(toggleButtonCtrl)
 
 	self:UpdateHeight(dropdownControl) --> Update self.m_height properly for self:Show call (including the now updated header's height)
 end
-
 
 function comboBoxClass:UpdateOptions(options, onInit)
 	onInit = onInit or false
@@ -3897,7 +3970,7 @@ function comboBoxClass:UpdateResults(comingFromFilters)
 	if self.m_submenu and self.m_submenu:IsDropdownVisible() then
 		self.m_submenu:HideDropdown()
 	end
-	self:AddMenuItems(nil, comingFromFilters)
+	self:Show()
 end
 
 --Reset internal default values like m_font or LSM defaults like visibleRowsDropdown
@@ -3927,7 +4000,6 @@ function comboBoxClass:UpdateMetatable(parent, comboBoxContainer, options)
 	dLog(LSM_LOGTYPE_DEBUG_CALLBACK, "FireCallbacks: OnDropdownMenuAdded - control: %s, options: %s", tos(getControlName(self.m_container)), tos(options))
 	self:Initialize(parent, comboBoxContainer, options, 1, true)
 end
-
 
 
 --------------------------------------------------------------------
@@ -3983,8 +4055,7 @@ function submenuClass:AddMenuItems(parentControl)
 	self.openingControl = parentControl
 	self:RefreshSortedItems(parentControl)
 	self:UpdateItems()
-	self.m_dropdownObject:Show(self, self.m_sortedItems, self.m_containerWidth, self.m_height, self:GetSpacing())
-
+	self:Show()
 	self.m_dropdownObject:AnchorToControl(parentControl)
 end
 
@@ -4093,11 +4164,8 @@ function contextMenuClass:AddMenuItems(parentControl, comingFromFilters)
 	dLog(LSM_LOGTYPE_VERBOSE, "contextMenuClass:AddMenuItems")
 	self:RefreshSortedItems()
 	self:UpdateItems()
-	self.m_dropdownObject:Show(self, self.m_sortedItems, self.m_containerWidth, self.m_height, self:GetSpacing())
-	if not comingFromFilters then
-		self.m_dropdownObject:AnchorToMouse()
-	end
-	self.m_dropdownObject.control:BringWindowToTop()
+	self:Show()
+	self.m_dropdownObject:AnchorToMouse()
 end
 
 function contextMenuClass:BypassOnGlobalMouseUp(button, ...)
@@ -4145,9 +4213,6 @@ function contextMenuClass:HideDropdown()
 --		self:ClearItems()
 	end
 
-	if self.highlightedControl then
-		unhighlightControl(self)
-	end
 	comboBox_base.HideDropdown(self)
 end
 
@@ -4337,7 +4402,6 @@ GetCustomScrollableMenuRowData = getControlData
 --moc() (control below mouse cursor) will be used
 -->Attention: ClearCustomScrollableMenu() will clear and hide ALL LSM contextmenus at any time! So we cannot have an LSM context menu to show at another
 --LSM context menu entry (similar to ZO_Menu).
-
 
 
 --Adds a new entry to the context menu entries with the shown text, where the callback function is called once the entry is clicked.
@@ -4748,10 +4812,8 @@ EM:RegisterForEvent(MAJOR, EVENT_ADD_ON_LOADED, onAddonLoaded)
 ------------------------------------------------------------------------------------------------------------------------
 -- Global library reference
 ------------------------------------------------------------------------------------------------------------------------
+
 LibScrollableMenu = lib
-
-
-
 
 
 ------------------------------------------------------------------------------------------------------------------------
@@ -4759,7 +4821,6 @@ LibScrollableMenu = lib
 ------------------------------------------------------------------------------------------------------------------------
 
 --[[
-
 -------------------
 WORKING ON - Current version: 2.3
 -------------------
@@ -4789,8 +4850,11 @@ WORKING ON - Current version: 2.3
     TESTED: OPEN
 	13. Bug with data.m_highlightTemplate = 'LibScrollableMenu_Highlight_Green' -> 1st repeated pool control (e.g. 15 rows -> 16th is 1st repeated pool control then) will use the normal blue highlight
 	because control.HighlightAnimation on scrollist row was set with old animation already and does not update properly
+	fixed - it now uses the temmplate as the animation name. Depending on what one is currently set to use, that's what is used,
+		control['ZO_SelectionHighlight'], control['ZO_SelectionHighlight_SubmenuBreadcrumb']
+		control['LibScrollableMenu_Highlight_Green'], control['LibScrollableMenu_Highlight_Green_SubmenuBreadcrumb']
+		they are still created on demand.
 	TESTED: TO FIX
-
 
 -------------------
 TODO - To check (future versions)
@@ -4803,8 +4867,6 @@ TODO - To check (future versions)
 	- fired on handlers dropdown_OnShow dropdown_OnHide
 	5. Check if entries' .tooltip can be a function and then call that function and show it as normal ZO_Tooltips_ShowTextTooltip(control, text) instead of having to use .customTooltip for that
 
-	6. setup m_highlightTemplate as a table in GetHighlightTemplate to return template and animationFieldName
-
 -------------------
 UPCOMING FEATURES  - What will be added in the future?
 -------------------
@@ -4815,4 +4877,21 @@ UPCOMING FEATURES  - What will be added in the future?
 		COllapsable may be difficult
 		It may require pushing the header bottom down when open and up when closed. Have not had much luck with resize to fit descendants
 		making it as a comboBox would not change the current dimminsions. And, it would add dificulties in passing the filter into the parent dropdown
+]]
+
+--[[
+Placed here as a reminer to inspect how comboBox enabled is being handeled
+not to be confused with itemData.enabled
+
+function ZO_ComboBox_Base:SetEnabled(enabled)
+    self.m_container:SetMouseEnabled(enabled)
+    self.m_openDropdown:SetEnabled(enabled)
+    self.m_selectedItemText:SetColor(self:GetSelectedTextColor(enabled))
+
+    self:HideDropdown()
+end
+
+function ZO_ComboBox_Base:IsEnabled()
+    return self.m_openDropdown:GetState() ~= BSTATE_DISABLED
+end
 ]]
